@@ -160,6 +160,35 @@ background-color: rgb(55, 136, 20);
     <string>Всего:</string>
    </property>
   </widget>
+  <widget class="QPushButton" name="delete_track_but">
+   <property name="geometry">
+    <rect>
+     <x>430</x>
+     <y>375</y>
+     <width>31</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="cursor">
+    <cursorShape>PointingHandCursor</cursorShape>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">border: none;</string>
+   </property>
+   <property name="text">
+    <string/>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>delete1.png</normaloff>delete1.png</iconset>
+   </property>
+   <property name="iconSize">
+    <size>
+     <width>25</width>
+     <height>25</height>
+    </size>
+   </property>
+  </widget>
  </widget>
  <resources/>
  <connections/>

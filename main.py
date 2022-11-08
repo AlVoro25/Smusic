@@ -4,7 +4,7 @@ from PyQt5 import uic, QtMultimedia, QtCore
 from PyQt5.QtGui import QIcon
 import sqlite3
 import eyed3
-import traceback
+import keyboard
  
  
 class Player(QMainWindow):
@@ -42,6 +42,9 @@ class Player(QMainWindow):
         self.repeat_but.clicked.connect(self.repeat)
         self.repeat_value = 1
         self.open_playlist.clicked.connect(self.open)
+        self.plus10.clicked.connect(self.rewind_forward)
+        self.minus10.clicked.connect(self.rewind_back)
+        self.hook = keyboard.on_press(self.keyboardEventReceived)
 
     def play_track(self, item):
         text = item.text().split(' - ')
@@ -53,29 +56,42 @@ class Player(QMainWindow):
         self.player.setMedia(QtMultimedia.QMediaContent(QtCore.QUrl(location)))
 
     def add_track_to_playlist(self):
-        track_path = QFileDialog.getOpenFileName(self, 'Выбрать трек', '')[0]
+        try:
+            track_path = QFileDialog.getOpenFileName(self, 'Выбрать трек', '')[0]
 
-        if len(track_path) != 0:
-            track_info = eyed3.load(track_path)
-            artist = track_info.tag.artist
-            name = track_info.tag.title
-            duration = round(track_info.info.time_secs)
-            queue = f'INSERT INTO {self.playlist} VALUES (?, ?, ?, ?)'
-            self.cur.execute(queue, (name, artist, duration, track_path)).fetchall()
-            name = ''
-            name += self.playlist
-            self.cur.execute(f'UPDATE Playlists SET length = length + 1 WHERE title="{name}"')
-            self.con.commit()
-            self.listWidget.clear()
-            tracks = self.cur.execute(f'SELECT name, artist FROM {self.playlist}').fetchall()
+            if len(track_path) != 0:
+                track_info = eyed3.load(track_path)
+                artist = track_info.tag.artist
+                name = track_info.tag.title
+                res = self.cur.execute(f'SELECT name, artist FROM {self.playlist}').fetchall()
+                
+                for m in res:
+                    if m[0] == name and m[1] == artist:
+                        raise TrackAlreadyExists
 
-            for m in tracks:
-                listWidgetItem = QListWidgetItem(f'{m[1]} - {m[0]}')
-                self.listWidget.addItem(listWidgetItem)
-                self.listWidget.itemDoubleClicked.connect(self.remove_track_from_playlist)
-                self.listWidget.itemClicked.connect(self.play_track)
+                duration = round(track_info.info.time_secs)
+                queue = f'INSERT INTO {self.playlist} VALUES (?, ?, ?, ?)'
+                self.cur.execute(queue, (name, artist, duration, track_path)).fetchall()
+                name = ''
+                name += self.playlist
+                self.cur.execute(f'UPDATE Playlists SET length = length + 1 WHERE title="{name}"')
+                self.con.commit()
+                self.listWidget.clear()
+                tracks = self.cur.execute(f'SELECT name, artist FROM {self.playlist}').fetchall()
 
-            self.length.setText(f'Всего: {self.listWidget.count()}')
+                for m in tracks:
+                    listWidgetItem = QListWidgetItem(f'{m[1]} - {m[0]}')
+                    self.listWidget.addItem(listWidgetItem)
+                    self.listWidget.itemDoubleClicked.connect(self.remove_track_from_playlist)
+                    self.listWidget.itemClicked.connect(self.play_track)
+
+                self.length.setText(f'Всего: {self.listWidget.count()}')
+        
+        except TrackAlreadyExists:
+            error_msg = QMessageBox(self)
+            error_msg.setWindowTitle("Ошибка!")
+            error_msg.setText("Трек уже в этом плейлисте!")
+            ex = error_msg.exec()              
 
     def remove_track_from_playlist(self, item):
         if len(item.text()) != 0:
@@ -122,6 +138,12 @@ class Player(QMainWindow):
                     raise TooLong
 
                 if len(name) != 0:
+                    names = self.cur.execute('SELECT title From Playlists')
+
+                    for m in names:
+                        if m[0] == name:
+                            raise PlaylistAlreadyExists
+
                     self.cur.execute(f'CREATE TABLE IF NOT EXISTS {name}(name STRING, artist STRING, duration INT, location STRING);')
                     self.con.commit()
                     self.playlist_name.setText(name)
@@ -151,7 +173,13 @@ class Player(QMainWindow):
             error_msg = QMessageBox(self)
             error_msg.setWindowTitle("Ошибка!")
             error_msg.setText("Слишком длинное название!")
-            ex = error_msg.exec()                  
+            ex = error_msg.exec() 
+
+        except PlaylistAlreadyExists:
+            error_msg = QMessageBox(self)
+            error_msg.setWindowTitle("Ошибка!")
+            error_msg.setText("Плейлист с таким названием уже существует!")
+            ex = error_msg.exec()                              
 
     def initPlayer(self, state):
         if state == QtMultimedia.QMediaPlayer.LoadedMedia:
@@ -223,7 +251,7 @@ class Player(QMainWindow):
             self.is_playing = False
 
     def play_next_track(self):
-        if self.listWidget.currentRow() == 0 and self.is_playing == False:
+        if self.listWidget.currentRow() == 0 and not self.is_playing:
             error_msg = QMessageBox(self)
             error_msg.setWindowTitle("Ошибка!")
             error_msg.setText("Ни один трек не выбран!")
@@ -279,9 +307,29 @@ class Player(QMainWindow):
         self.playlists_window.show()
 
     def is_closed(self):
+        if self.playlists_window.removed_name != '':
+            self.playlist = 'Loving_tracks'
+            tracks = self.cur.execute(f'SELECT name, artist FROM {self.playlist}').fetchall()
+            self.listWidget.clear()
+            self.playlist_name.setText('Мне нравится')
+
+            for m in tracks:
+                listWidgetItem = QListWidgetItem(f'{m[1]} - {m[0]}')
+                self.listWidget.addItem(listWidgetItem)
+                self.listWidget.itemDoubleClicked.connect(self.remove_track_from_playlist)
+                self.listWidget.itemClicked.connect(self.play_track)
+
+            self.length.setText(f'Всего: {self.listWidget.count()}')  
+
         if self.playlists_window.playlist != '':
             self.playlist = self.playlists_window.playlist
-            self.playlist_name.setText(self.playlist)
+
+            if self.playlist == 'Loving_Tracks':
+                self.playlist_name.setText('Мне нравится')
+
+            else:
+                self.playlist_name.setText(self.playlist)
+                
             tracks = self.cur.execute(f'SELECT name, artist FROM {self.playlist}').fetchall()
             self.listWidget.clear()
 
@@ -291,8 +339,34 @@ class Player(QMainWindow):
                 self.listWidget.itemDoubleClicked.connect(self.remove_track_from_playlist)
                 self.listWidget.itemClicked.connect(self.play_track)
 
-            self.length.setText(f'Всего: {self.listWidget.count()}')        
+            self.length.setText(f'Всего: {self.listWidget.count()}')  
 
+    def rewind_forward(self):
+        if self.is_playing:
+            position = self.player.position()
+            self.player.setPosition(position + 10000)
+
+    def rewind_back(self):
+        if self.is_playing:
+            position = self.player.position()
+
+            if position >= 10000:
+                self.player.setPosition(position - 10000)  
+
+            else:
+                self.player.setPosition(0)
+
+    def keyboardEventReceived(self, event):
+        if event.event_type == 'down':
+            
+            if event.name == 'right':
+                self.rewind_forward()
+
+            elif event.name == 'left':
+                self.rewind_back()
+
+            elif event.name == 'r':
+                self.repeat()
 
 
 class Playlist_Window(QWidget):
@@ -314,12 +388,17 @@ class Playlist_Window(QWidget):
         self.choose.clicked.connect(self.choose_playlist)
         self.name = ''
         self.playlist = ''
+        self.delete_track_but.clicked.connect(self.delete_playlist)
+        self.delete_track_but.setEnabled(False)
+        self.removed_name = ''
 
     signal = QtCore.pyqtSignal(str)
 
     def choose_playlist_item(self, item):
-        name = item.text().split('\t')[0]
+        name = item.text()
         self.name = name
+        self.delete_track_but.setEnabled(True)
+        self.delete_track_but.setIcon(QIcon('delete.png'))
 
     def sendEditContent(self):
         content = '1'
@@ -332,8 +411,53 @@ class Playlist_Window(QWidget):
         self.playlist = self.name
         self.close()
 
+    def delete_playlist(self):
+        try:
+            if len(self.name) != 0:
+                text = self.name.split('\t')
+                name = text[0].strip()
+                valid = QMessageBox.question(
+                    self, '', "Действительно удалить плейлист",
+                    QMessageBox.Yes, QMessageBox.No)
+
+                if valid == QMessageBox.Yes:
+
+                    if name != 'Loving_Tracks':
+                        self.cur.execute(f'DELETE FROM Playlists WHERE title="{name}"').fetchall()
+                        self.removed_name = name
+                        self.con.commit()
+                        tracks = self.cur.execute('''SELECT title, length FROM Playlists''').fetchall()
+                        self.listWidget.clear()
+
+                        for m in tracks:
+                            listWidgetItem = QListWidgetItem(f'{m[0]} \t\t\t Треков: {m[1]}')
+                            self.listWidget.addItem(listWidgetItem)
+                            self.listWidget.itemClicked.connect(self.choose_playlist_item)
+
+                        self.length.setText(f'Всего: {self.listWidget.count()}')
+
+                    else:
+                        raise BadNameToRemove
+
+        except BadNameToRemove:
+            error_msg = QMessageBox(self)
+            error_msg.setWindowTitle("Ошибка!")
+            error_msg.setText('Нельзя удалить плейлист "Мне нравится"!')
+            ex = error_msg.exec()       
+
 
 class TooLong(Exception):
+    pass
+
+
+class PlaylistAlreadyExists(Exception):
+    pass
+
+
+class TrackAlreadyExists(Exception):
+    pass
+
+class BadNameToRemove(Exception):
     pass
 
 
