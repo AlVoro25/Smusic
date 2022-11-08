@@ -4,15 +4,18 @@ from PyQt5 import uic, QtMultimedia, QtCore
 from PyQt5.QtGui import QIcon
 import sqlite3
 import eyed3
+# библиотека для обработки нажатий клавиатуры
 import keyboard
  
- 
+
+# класс основного окна
 class Player(QMainWindow):
     def __init__(self):
         super().__init__()
         uic.loadUi('main.ui', self)
         self.con = sqlite3.connect('music.sqlite3')
         self.cur = self.con.cursor()
+        # загружаем стандартный плейлист "Мне нравится"
         tracks = self.cur.execute('''SELECT name, artist FROM Loving_Tracks''').fetchall()
         self.listWidget.clear()
 
@@ -46,6 +49,7 @@ class Player(QMainWindow):
         self.minus10.clicked.connect(self.rewind_back)
         self.hook = keyboard.on_press(self.keyboardEventReceived)
 
+    # функция выбора песни в плейлисте для дальнейшей работы с ним
     def play_track(self, item):
         text = item.text().split(' - ')
         artist = text[0]
@@ -55,6 +59,7 @@ class Player(QMainWindow):
         location = res[0][0]
         self.player.setMedia(QtMultimedia.QMediaContent(QtCore.QUrl(location)))
 
+    #добавление трека в плейлист
     def add_track_to_playlist(self):
         try:
             track_path = QFileDialog.getOpenFileName(self, 'Выбрать трек', '')[0]
@@ -77,6 +82,9 @@ class Player(QMainWindow):
                 self.cur.execute(f'UPDATE Playlists SET length = length + 1 WHERE title="{name}"')
                 self.con.commit()
                 self.listWidget.clear()
+
+                #заполняем виджет по новой
+
                 tracks = self.cur.execute(f'SELECT name, artist FROM {self.playlist}').fetchall()
 
                 for m in tracks:
@@ -87,12 +95,14 @@ class Player(QMainWindow):
 
                 self.length.setText(f'Всего: {self.listWidget.count()}')
         
+        # обрабатываем тот случай, когда такой трек уже имеется в плейлисте
         except TrackAlreadyExists:
             error_msg = QMessageBox(self)
             error_msg.setWindowTitle("Ошибка!")
             error_msg.setText("Трек уже в этом плейлисте!")
             ex = error_msg.exec()              
 
+    # функция удаления трека из плейлиста
     def remove_track_from_playlist(self, item):
         if len(item.text()) != 0:
             text = item.text().split(' - ')
@@ -110,6 +120,9 @@ class Player(QMainWindow):
                 self.con.commit()
                 self.player.stop()
             self.listWidget.clear()
+
+            # обновляем виджет
+
             tracks = self.cur.execute(f'SELECT name, artist FROM {self.playlist}').fetchall()
             
             if tracks:
@@ -125,6 +138,7 @@ class Player(QMainWindow):
         if self.listWidget.count() == 0:
             self.length.setText('Всего: 0')
 
+    # создаем новый плейлист
     def make_playlist(self):
         try:
             name, ok_pressed = QInputDialog.getText(self, "Введите название плейлиста", 
@@ -141,7 +155,7 @@ class Player(QMainWindow):
                     names = self.cur.execute('SELECT title From Playlists')
 
                     for m in names:
-                        if m[0] == name:
+                        if m[0] == name or m[0] == 'Мне нравится':
                             raise PlaylistAlreadyExists
 
                     self.cur.execute(f'CREATE TABLE IF NOT EXISTS {name}(name STRING, artist STRING, duration INT, location STRING);')
@@ -150,6 +164,8 @@ class Player(QMainWindow):
                     self.playlist = name
                     tracks = self.cur.execute(f'SELECT name, artist FROM {self.playlist}').fetchall()
                     self.listWidget.clear()
+
+                    # заполняем виджет
 
                     for m in tracks:
                         listWidgetItem = QListWidgetItem(f'{m[1]} - {m[0]}')
@@ -163,24 +179,28 @@ class Player(QMainWindow):
                     self.cur.execute(queue, (name,)).fetchall()
                     self.con.commit()
 
+        # обработка неправильного названия
         except sqlite3.OperationalError as e:
             error_msg = QMessageBox(self)
             error_msg.setWindowTitle("Ошибка!")
             error_msg.setText("Некорректное название!")
             ex = error_msg.exec()  
 
+        # обработка слишком длинного названия
         except TooLong:
             error_msg = QMessageBox(self)
             error_msg.setWindowTitle("Ошибка!")
             error_msg.setText("Слишком длинное название!")
             ex = error_msg.exec() 
 
+        # обработка повторяющегося названия
         except PlaylistAlreadyExists:
             error_msg = QMessageBox(self)
             error_msg.setWindowTitle("Ошибка!")
             error_msg.setText("Плейлист с таким названием уже существует!")
             ex = error_msg.exec()                              
 
+    # функция работы с плеером
     def initPlayer(self, state):
         if state == QtMultimedia.QMediaPlayer.LoadedMedia:
             self.slider.setMaximum(self.player.duration())
@@ -224,21 +244,25 @@ class Player(QMainWindow):
         elif state == QtMultimedia.QMediaPlayer.NoMedia or state == QtMultimedia.QMediaPlayer.InvalidMedia:
             self.slider.setValue(0)
 
+    # задаем позицию слайдеру в зависимости от времени
     def position_changed(self, position):
         self.slider.blockSignals(True)
         self.slider.setValue(position)
         self.slider.blockSignals(False)
         self.playing_time.setText(self.mmss(position))
 
+    # длительность трека
     def duration_changed(self, duration):
         self.slider.setMaximum(duration)
         self.duration_time.setText(self.mmss(duration))
 
+    # преобразование миллисекунд в формат минуты:секунды
     def mmss(self, ms):
         s = round(ms / 1000)
         m, s = divmod(s, 60)
         return "%d:%02d" % (m, s)
-    
+
+    # ставим трек на паузу   
     def stop_track(self):
         if self.is_playing == False:
             self.player.play()
@@ -250,6 +274,7 @@ class Player(QMainWindow):
             self.play.setIcon(QIcon('play.png'))
             self.is_playing = False
 
+    # включаем следующиий трек
     def play_next_track(self):
         if self.listWidget.currentRow() == 0 and not self.is_playing:
             error_msg = QMessageBox(self)
@@ -275,6 +300,7 @@ class Player(QMainWindow):
             self.play.setIcon(QIcon('stop.png'))
             self.is_playing = True
 
+    # включаем предыдущий трек
     def play_prev_track(self):
         if self.listWidget.currentRow() == 0:
             error_msg = QMessageBox(self)
@@ -292,6 +318,7 @@ class Player(QMainWindow):
             self.play.setIcon(QIcon('stop.png'))
             self.is_playing = True
 
+    # включаем или отключаем повторение трека
     def repeat(self):
         if self.repeat_value == 1:
             self.repeat_but.setIcon(QIcon('repeat2.png'))
@@ -301,6 +328,7 @@ class Player(QMainWindow):
             self.repeat_but.setIcon(QIcon('repeat1.png'))
             self.repeat_value -= 1
 
+    # открываем меню с плейлистами
     def open(self):
         self.playlists_window = Playlist_Window()
         self.playlists_window.signal.connect(self.is_closed)
@@ -329,7 +357,8 @@ class Player(QMainWindow):
 
             else:
                 self.playlist_name.setText(self.playlist)
-                
+            
+            print(self.playlist)
             tracks = self.cur.execute(f'SELECT name, artist FROM {self.playlist}').fetchall()
             self.listWidget.clear()
 
@@ -341,11 +370,13 @@ class Player(QMainWindow):
 
             self.length.setText(f'Всего: {self.listWidget.count()}')  
 
+    # перемотать трек на 10 секунд вперед
     def rewind_forward(self):
         if self.is_playing:
             position = self.player.position()
             self.player.setPosition(position + 10000)
 
+    # перемотать трек на 10 секунд назад
     def rewind_back(self):
         if self.is_playing:
             position = self.player.position()
@@ -369,6 +400,7 @@ class Player(QMainWindow):
                 self.repeat()
 
 
+# Класс меню с плейлистами
 class Playlist_Window(QWidget):
     def __init__(self):
         super().__init__()
@@ -378,6 +410,7 @@ class Playlist_Window(QWidget):
         tracks = self.cur.execute('''SELECT title, length FROM Playlists''').fetchall()
         self.listWidget.clear()
 
+        # обновляем меню
         for m in tracks:
             listWidgetItem = QListWidgetItem(f'{m[0]} \t\t\t Треков: {m[1]}')
             self.listWidget.addItem(listWidgetItem)
@@ -408,9 +441,10 @@ class Playlist_Window(QWidget):
         self.sendEditContent()
 
     def choose_playlist(self):
-        self.playlist = self.name
+        self.playlist = self.name.split('\t')[0].strip()
         self.close()
 
+    # удаляем плейлист
     def delete_playlist(self):
         try:
             if len(self.name) != 0:
@@ -439,6 +473,7 @@ class Playlist_Window(QWidget):
                     else:
                         raise BadNameToRemove
 
+        # сообщаем, что плейлист "Мне нравится" удалить нельзя
         except BadNameToRemove:
             error_msg = QMessageBox(self)
             error_msg.setWindowTitle("Ошибка!")
@@ -446,6 +481,7 @@ class Playlist_Window(QWidget):
             ex = error_msg.exec()       
 
 
+# ошибки
 class TooLong(Exception):
     pass
 
